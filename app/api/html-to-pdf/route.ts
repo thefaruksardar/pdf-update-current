@@ -30,7 +30,13 @@ type PdfItem = {
 
 /* ============== HELPERS ================= */
 
-const bufferToBlob = (buf: Buffer, type: string) => new Blob([buf], { type });
+// 🔑 THIS is the important fix
+const bufferToArrayBuffer = (buf: Buffer): ArrayBuffer => {
+  const ab = new ArrayBuffer(buf.byteLength);
+  const view = new Uint8Array(ab);
+  view.set(buf);
+  return ab;
+};
 
 /* ============== HANDLER ================= */
 
@@ -44,10 +50,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const isVercel = !!process.env.VERCEL;
+
   const browser = await playwrightChromium.launch({
-    args: chromium.args,
-    executablePath: await chromium.executablePath(),
-    headless: chromium.headless,
+    args: isVercel ? chromium.args : [],
+    executablePath: isVercel ? await chromium.executablePath() : undefined, // local dev uses Playwright Chromium
+    headless: true,
   });
 
   try {
@@ -58,7 +66,7 @@ export async function POST(req: NextRequest) {
 
       await page.setContent(file.html, { waitUntil: "networkidle" });
 
-      // Extract first <h1> → <title>
+      // Extract <h1> → <title>
       const titleText =
         (await page.locator("h1").first().textContent())?.trim() ||
         "Untitled Document";
@@ -129,7 +137,7 @@ export async function POST(req: NextRequest) {
     if (pdfBuffers.length === 1) {
       const pdf = pdfBuffers[0];
 
-      return new Response(bufferToBlob(pdf.buffer, "application/pdf"), {
+      return new Response(bufferToArrayBuffer(pdf.buffer), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="${pdf.name}"`,
@@ -145,7 +153,7 @@ export async function POST(req: NextRequest) {
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
 
-    return new Response(bufferToBlob(zipBuffer, "application/zip"), {
+    return new Response(bufferToArrayBuffer(zipBuffer), {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": 'attachment; filename="updated-pdfs.zip"',
