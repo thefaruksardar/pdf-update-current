@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // This tells Next.js to leave these packages alone
+  // Fixes the "input directory /var/task/... does not exist" error
   serverExternalPackages: ["playwright-core", "@sparticuz/chromium"],
 };
 
-module.exports = nextConfig;
+export default nextConfig;
