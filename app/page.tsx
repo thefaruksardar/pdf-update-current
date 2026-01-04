@@ -3,7 +3,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
-import { File, Plus, RotateCcw, Upload, X } from "lucide-react";
+import {
+  File,
+  Plus,
+  RotateCcw,
+  SquareArrowOutUpRight,
+  Upload,
+  X,
+} from "lucide-react";
+import Link from "next/link";
 
 type UploadFile = {
   name: string;
@@ -606,6 +614,14 @@ export default function HtmlToPdfUploader() {
               {fileStatus}
             </div>
           </div>
+
+          <Link
+            href="/filename"
+            className="flex items-center justify-center gap-2 mt-5 hover:underline"
+          >
+            Link name Update
+            <SquareArrowOutUpRight className="h-4 w-4" />
+          </Link>
         </div>
       </div>
     </main>
