@@ -1,30 +1,38 @@
-// app/api/html-to-pdf/route.ts (COMPLETE - FIXED: file.pdfMeta everywhere)
 import { NextRequest } from "next/server";
-import { chromium } from "playwright";
+import chromium from "@sparticuz/chromium";
+import { chromium as playwrightChromium } from "playwright-core";
 import JSZip from "jszip";
-import { PDFDocument } from "pdf-lib"; // npm i pdf-lib
+import { PDFDocument } from "pdf-lib";
 
 export const runtime = "nodejs";
 
+/* ================= TYPES ================= */
+
 type PdfMeta = {
-  author: string;
-  subject: string;
-  keywords: string;
-  created: string;
-  modified: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+  created?: string;
+  modified?: string;
   producer?: string;
 };
 
 type IncomingFile = {
   name: string;
   html: string;
-  pdfMeta?: PdfMeta; // ✅ Matches frontend UploadFile
+  pdfMeta?: PdfMeta;
 };
 
 type PdfItem = {
   name: string;
   buffer: Buffer;
 };
+
+/* ============== HELPERS ================= */
+
+const bufferToBlob = (buf: Buffer, type: string) => new Blob([buf], { type });
+
+/* ============== HANDLER ================= */
 
 export async function POST(req: NextRequest) {
   const { files } = (await req.json()) as { files: IncomingFile[] };
@@ -36,94 +44,92 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const browser = await chromium.launch();
+  const browser = await playwrightChromium.launch({
+    args: chromium.args,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+
   try {
     const pdfBuffers: PdfItem[] = [];
 
     for (const file of files) {
       const page = await browser.newPage();
 
-      // Extract title FIRST
       await page.setContent(file.html, { waitUntil: "networkidle" });
 
+      // Extract first <h1> → <title>
       const titleText =
         (await page.locator("h1").first().textContent())?.trim() ||
         "Untitled Document";
 
-      // Inject <title> WITHOUT reloading
       await page.evaluate((title) => {
-        const titleEl = document.querySelector("title");
-        if (!titleEl) {
-          const newTitle = document.createElement("title");
-          newTitle.textContent = title;
-          document.head.appendChild(newTitle);
+        let el = document.querySelector("title");
+        if (!el) {
+          el = document.createElement("title");
+          document.head.appendChild(el);
         }
+        el.textContent = title;
       }, titleText);
 
-      // Generate PDF immediately
-      let pdfBuffer = (await page.pdf({
-        format: "A4",
-        printBackground: true,
-        scale: 0.8,
-        margin: {
-          // ← Reduce margins
-          top: "0.5in",
-          bottom: "0.5in",
-          left: "0.5in",
-          right: "0.5in",
-        },
-      })) as Buffer;
+      let pdfBuffer = Buffer.from(
+        await page.pdf({
+          format: "A4",
+          printBackground: true,
+          scale: 0.8,
+          margin: {
+            top: "0.5in",
+            bottom: "0.5in",
+            left: "0.5in",
+            right: "0.5in",
+          },
+        })
+      );
 
       await page.close();
 
-      // ✅ FIXED: Use file.pdfMeta (matches frontend)
+      /* ===== Apply PDF metadata ===== */
       if (file.pdfMeta) {
-        console.log("Applying metadata:", file.pdfMeta);
         const pdfDoc = await PDFDocument.load(pdfBuffer);
 
         if (file.pdfMeta.author) pdfDoc.setAuthor(file.pdfMeta.author);
         if (file.pdfMeta.subject) pdfDoc.setSubject(file.pdfMeta.subject);
-        if (file.pdfMeta.producer) pdfDoc.setProducer(file.pdfMeta.producer); // ✅ NEW
+        if (file.pdfMeta.producer) pdfDoc.setProducer(file.pdfMeta.producer);
+
         if (file.pdfMeta.keywords) {
-          const keywordsArray = file.pdfMeta.keywords
-            .split(",")
-            .map((k) => k.trim())
-            .filter(Boolean);
-          pdfDoc.setKeywords(keywordsArray);
+          pdfDoc.setKeywords(
+            file.pdfMeta.keywords
+              .split(",")
+              .map((k) => k.trim())
+              .filter(Boolean)
+          );
         }
 
         if (file.pdfMeta.created) {
           try {
             pdfDoc.setCreationDate(new Date(file.pdfMeta.created));
-          } catch (e) {
-            console.warn("Invalid created date:", file.pdfMeta.created);
-          }
+          } catch {}
         }
+
         if (file.pdfMeta.modified) {
           try {
             pdfDoc.setModificationDate(new Date(file.pdfMeta.modified));
-          } catch (e) {
-            console.warn("Invalid modified date:", file.pdfMeta.modified);
-          }
+          } catch {}
         }
 
-        const pdfBytes = await pdfDoc.save();
-        pdfBuffer = Buffer.from(pdfBytes);
+        pdfBuffer = Buffer.from(await pdfDoc.save());
       }
 
       const name = file.name.endsWith(".pdf") ? file.name : `${file.name}.pdf`;
+
       pdfBuffers.push({ name, buffer: pdfBuffer });
     }
 
-    // Single PDF response
+    /* ===== SINGLE PDF ===== */
     if (pdfBuffers.length === 1) {
       const pdf = pdfBuffers[0];
-      const uint8 = new Uint8Array(
-        pdf.buffer.buffer,
-        pdf.buffer.byteOffset,
-        pdf.buffer.byteLength
-      );
-      return new Response(uint8 as BodyInit, {
+
+      return new Response(bufferToBlob(pdf.buffer, "application/pdf"), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="${pdf.name}"`,
@@ -131,17 +137,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ZIP multiple PDFs
+    /* ===== ZIP MULTIPLE PDFs ===== */
     const zip = new JSZip();
     for (const pdf of pdfBuffers) {
       zip.file(pdf.name, pdf.buffer);
     }
-    const zipArrayBuffer = await zip.generateAsync({
-      type: "arraybuffer",
-      compression: "DEFLATE",
-    });
-    const zipUint8 = new Uint8Array(zipArrayBuffer);
-    return new Response(zipUint8, {
+
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+
+    return new Response(bufferToBlob(zipBuffer, "application/zip"), {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": 'attachment; filename="updated-pdfs.zip"',
