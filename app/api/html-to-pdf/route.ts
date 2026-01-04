@@ -22,11 +22,15 @@ export async function POST(req: NextRequest) {
   // Robust path handling for Vercel vs Local
   const isLocal = process.env.NODE_ENV === "development";
 
+  // Updated Chromium Configuration
+  const remoteExecutablePath =
+    "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar";
+
   const browser = await playwright.launch({
     args: isLocal ? [] : chromium.args,
     executablePath: isLocal
-      ? undefined // Uses local Playwright installation
-      : await chromium.executablePath(), // Resolves Vercel binary path
+      ? undefined
+      : await chromium.executablePath(remoteExecutablePath), // Fallback URL added here
     headless: isLocal ? true : chromium.headless,
   });
 
@@ -71,10 +75,7 @@ export async function POST(req: NextRequest) {
     if (pdfBuffers.length === 1) {
       const pdf = pdfBuffers[0];
       return new Response(new Uint8Array(pdf.buffer), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${pdf.name}"`,
-        },
+        headers: { "Content-Type": "application/pdf" },
       });
     }
 
