@@ -1,0 +1,395 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import toast from "react-hot-toast";
+import confetti from "canvas-confetti";
+
+type UploadFile = {
+  name: string;
+  html: string;
+  pdfMeta: {
+    author: string;
+    subject: string;
+    keywords: string;
+    created: string;
+    modified: string;
+  };
+};
+
+export default function HtmlToPdfUploader() {
+  const [loading, setLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [codeLength, setCodeLength] = useState(6);
+  const [includeLowercase, setIncludeLowercase] = useState(true);
+  const [includeUppercase, setIncludeUppercase] = useState(false);
+  const [includeDigits, setIncludeDigits] = useState(true);
+  const [previewCode, setPreviewCode] = useState("");
+
+  const [pdfMeta, setPdfMeta] = useState({
+    author: "",
+    subject: "",
+    keywords: "",
+    created: "",
+    modified: "",
+  });
+
+  const generateRandomCode = useCallback((): string => {
+    let chars = "";
+    if (includeLowercase) chars += "abcdefghijklmnopqrstuvwxyz";
+    if (includeUppercase) chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if (includeDigits) chars += "0123456789";
+
+    if (!chars) return "";
+
+    let result = "";
+    for (let i = 0; i < codeLength; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return result;
+  }, [codeLength, includeLowercase, includeUppercase, includeDigits]);
+
+  useEffect(() => {
+    setPreviewCode(generateRandomCode());
+  }, [generateRandomCode]);
+
+  const getDateString = (): string => {
+    const date = selectedDate || new Date();
+    return date.toLocaleDateString("en-US", {
+      month: "long",
+      day: "2-digit",
+      year: "numeric",
+    });
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    setLoading(true);
+    try {
+      const uploadFiles: UploadFile[] = [];
+
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+
+        const randomCode = previewCode; //generateRandomCode();
+        const currentDate = getDateString();
+        const currentYear = new Date().getFullYear().toString();
+
+        const processed = text
+          .replace(/\{CODE\}/g, `{${randomCode}}`) // {CODE} → {bTRDq2}
+          .replace(/\{DATE\}/g, currentDate) // {DATE} → "January 02, 2026"
+          .replace(/\{YEAR\}/g, currentYear); // {year} → "2026"
+
+        const baseName = file.name.replace(/\.html?$/i, "");
+        uploadFiles.push({
+          name: `${baseName}.pdf`,
+          html: processed,
+          pdfMeta: pdfMeta,
+        });
+      }
+
+      const res = await fetch("/api/html-to-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: uploadFiles }),
+      });
+
+      if (!res.ok) {
+        console.error("Failed to generate PDF/ZIP");
+        return;
+      }
+
+      toast.success("Download started");
+      confetti({
+        particleCount: 120,
+        spread: 70,
+        startVelocity: 45,
+        origin: { y: 0.6 },
+      });
+      const blob = await res.blob();
+      let filename = "document.pdf";
+      if (uploadFiles.length > 1) {
+        filename = "documents.zip";
+      }
+
+      const disposition = res.headers.get("Content-Disposition");
+      if (disposition) {
+        const match = disposition.match(/filename=\"(.+)\"/);
+        if (match) filename = match[1];
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="bg-neutral-50 h-screen text-neutral-800 md:flex md:flex-col md:justify-center md:items-center px-4">
+      <div className="max-w-5xl mx-auto">
+        {/* Date Picker */}
+        <div className="bg-white py-5 px-7 rounded-lg shadow/5 mb-3">
+          <label className="flex items-center gap-2 font-semibold">
+            Select Date:
+            <input
+              className="font-normal"
+              type="date"
+              value={
+                selectedDate ? selectedDate.toISOString().split("T")[0] : ""
+              }
+              onChange={(e) =>
+                setSelectedDate(
+                  e.target.value ? new Date(e.target.value) : null
+                )
+              }
+              style={{
+                display: "block",
+                marginTop: "5px",
+                padding: "8px",
+                border: "1px solid #ddd",
+                borderRadius: "4px",
+                width: "200px",
+              }}
+            />
+          </label>
+        </div>
+
+        {/* Code Generator Options */}
+        {/* <div className="bg-white py-5 px-7 rounded-lg shadow/5 mb-3">
+          <div style={{ marginBottom: "10px" }}>
+            <label className="flex items-center gap-2 font-semibold ">
+              Code Length:
+              <input
+                type="range" // ← Changed to slider
+                min="1"
+                max="20"
+                value={codeLength}
+                onChange={(e) => setCodeLength(Number(e.target.value))}
+                style={{
+                  width: "200px", // Wider for slider
+                  verticalAlign: "middle",
+                }}
+              />
+              <span style={{ marginLeft: "10px", fontWeight: "bold" }}>
+                {codeLength}
+              </span>
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeLowercase}
+                onChange={(e) => setIncludeLowercase(e.target.checked)}
+              />
+              Lowercase (abc)
+            </label>
+
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeUppercase}
+                onChange={(e) => setIncludeUppercase(e.target.checked)}
+              />
+              Uppercase (ABC)
+            </label>
+
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeDigits}
+                onChange={(e) => setIncludeDigits(e.target.checked)}
+              />
+              Digits (123)
+            </label>
+          </div>
+
+          <div className="bg-green-100/80 text-green-700 p-2 rounded-lg border border-green-700 mt-3">
+            Preview:{" "}
+            <code className="font-mono">
+              {previewCode || "Click checkboxes to preview"}
+            </code>
+          </div>
+        </div> */}
+
+        {/* Code Generator Options */}
+        <div className="bg-white py-5 px-7 rounded-lg shadow/5 mb-3">
+          <div style={{ marginBottom: "10px" }}>
+            <label className="flex items-center gap-2 font-semibold">
+              Code Length:
+              <input
+                type="range"
+                min="1"
+                max="20"
+                value={codeLength}
+                onChange={(e) => setCodeLength(Number(e.target.value))}
+                style={{
+                  width: "200px",
+                  verticalAlign: "middle",
+                }}
+              />
+              <span style={{ marginLeft: "10px", fontWeight: "bold" }}>
+                {codeLength}
+              </span>
+            </label>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "15px",
+              flexWrap: "wrap",
+              marginBottom: "10px",
+            }}
+          >
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeLowercase}
+                onChange={(e) => setIncludeLowercase(e.target.checked)}
+              />
+              Lowercase (abc)
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeUppercase}
+                onChange={(e) => setIncludeUppercase(e.target.checked)}
+              />
+              Uppercase (ABC)
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={includeDigits}
+                onChange={(e) => setIncludeDigits(e.target.checked)}
+              />
+              Digits (123)
+            </label>
+          </div>
+
+          {/* ✅ Editable Preview */}
+          <div className="bg-green-100/80 text-green-700 p-3 rounded-lg border border-green-700">
+            <label className="block text-sm font-medium mb-2">
+              Custom Code Preview <span className="text-xs">(edit freely)</span>
+              :
+            </label>
+            <input
+              type="text"
+              value={previewCode}
+              onChange={(e) => setPreviewCode(e.target.value)}
+              maxLength={20}
+              placeholder="Type your custom code here..."
+              className="w-full p-2 border border-green-400 rounded bg-green-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              style={{ fontFamily: "monospace" }}
+            />
+            <div className="text-xs mt-1 opacity-75">
+              Length: {previewCode.length} / 20 | Generate random:{" "}
+              <button
+                type="button"
+                onClick={() => setPreviewCode(generateRandomCode())}
+                className="text-green-700 underline hover:text-green-900"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* PDF Metadata */}
+        <div className="bg-white py-5 px-7 rounded-lg shadow/5 mb-3">
+          <h3 className="font-semibold mb-3">PDF Metadata</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input
+              placeholder="Author (e.g. Custom Name)"
+              value={pdfMeta.author}
+              onChange={(e) =>
+                setPdfMeta({ ...pdfMeta, author: e.target.value })
+              }
+              className="border rounded px-3 py-2"
+            />
+
+            <input
+              placeholder="Subject"
+              value={pdfMeta.subject}
+              onChange={(e) =>
+                setPdfMeta({ ...pdfMeta, subject: e.target.value })
+              }
+              className="border rounded px-3 py-2"
+            />
+
+            <input
+              placeholder="Keywords (comma separated)"
+              value={pdfMeta.keywords}
+              onChange={(e) =>
+                setPdfMeta({ ...pdfMeta, keywords: e.target.value })
+              }
+              className="border rounded px-3 py-2"
+            />
+
+            <input
+              type="date"
+              placeholder="Created"
+              value={pdfMeta.created}
+              onChange={(e) =>
+                setPdfMeta({ ...pdfMeta, created: e.target.value })
+              }
+              className="border rounded px-3 py-2"
+            />
+
+            <input
+              type="date"
+              placeholder="Modified"
+              value={pdfMeta.modified}
+              onChange={(e) =>
+                setPdfMeta({ ...pdfMeta, modified: e.target.value })
+              }
+              className="border rounded px-3 py-2"
+            />
+          </div>
+        </div>
+
+        {/* File Input */}
+        <div className="bg-white py-5 px-7 rounded-lg shadow/5 mb-3">
+          <label
+            style={{ display: "block", marginBottom: "5px" }}
+            className="font-semibold"
+          >
+            Select HTML files:
+            <input
+              type="file"
+              accept=".html,text/html"
+              multiple
+              onChange={(e) => handleFiles(e.target.files)}
+              style={{
+                display: "block",
+                marginTop: "5px",
+                padding: "8px",
+                border: "1px solid #ddd",
+                borderRadius: "4px",
+                width: "100%",
+                fontWeight: "normal",
+              }}
+            />
+          </label>
+        </div>
+
+        {loading && (
+          <div className="mt-4 flex justify-center items-center gap-3 rounded-md px-4 py-3 text-sm text-neutral-700">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700" />
+            <span className="text-lg">Generating PDF(s)</span>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

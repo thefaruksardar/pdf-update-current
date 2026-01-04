@@ -1,0 +1,92 @@
+// app/api/html-to-pdf/route.ts
+import { NextRequest } from "next/server";
+import { chromium } from "playwright";
+import JSZip from "jszip";
+
+export const runtime = "nodejs";
+
+type IncomingFile = {
+  name: string;
+  html: string;
+};
+
+type PdfItem = {
+  name: string;
+  buffer: Buffer;
+};
+
+export async function POST(req: NextRequest) {
+  const { files } = (await req.json()) as { files: IncomingFile[] };
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return new Response(JSON.stringify({ error: "No files provided" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const browser = await chromium.launch();
+  try {
+    const pdfBuffers: PdfItem[] = [];
+
+    for (const file of files) {
+      const page = await browser.newPage();
+
+      await page.setContent(file.html, { waitUntil: "networkidle" });
+
+      const pdfBuffer = (await page.pdf({
+        format: "A4",
+        printBackground: true,
+      })) as Buffer;
+
+      await page.close();
+
+      const name = file.name.endsWith(".pdf") ? file.name : `${file.name}.pdf`;
+
+      pdfBuffers.push({ name, buffer: pdfBuffer });
+    }
+
+    // ---------- Single PDF ----------
+    if (pdfBuffers.length === 1) {
+      const pdf = pdfBuffers[0];
+
+      // Do NOT add a generic here; let TS infer Uint8Array
+      const uint8 = new Uint8Array(
+        pdf.buffer.buffer,
+        pdf.buffer.byteOffset,
+        pdf.buffer.byteLength
+      );
+
+      return new Response(uint8 as BodyInit, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdf.name}"`,
+        },
+      });
+    }
+
+    // ---------- Multiple PDFs -> ZIP ----------
+    const zip = new JSZip();
+
+    for (const pdf of pdfBuffers) {
+      // JSZip accepts Node Buffer directly
+      zip.file(pdf.name, pdf.buffer);
+    }
+
+    const zipArrayBuffer = await zip.generateAsync({
+      type: "arraybuffer",
+      compression: "DEFLATE",
+    });
+
+    const zipUint8 = new Uint8Array(zipArrayBuffer);
+
+    return new Response(zipUint8, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": 'attachment; filename="updated-pdfs.zip"',
+      },
+    });
+  } finally {
+    await browser.close();
+  }
+}

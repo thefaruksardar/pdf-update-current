@@ -1,0 +1,104 @@
+"use client";
+
+import { useState } from "react";
+
+type UploadFile = {
+  name: string;
+  html: string;
+};
+
+export default function HtmlToPdfUploader() {
+  const [loading, setLoading] = useState(false);
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    setLoading(true);
+    try {
+      const uploadFiles: UploadFile[] = [];
+
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+
+        function generateRandomCode(): string {
+          const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+          let result = "";
+          for (let i = 0; i < 6; i++) {
+            result += chars[Math.floor(Math.random() * chars.length)];
+          }
+          return result; // e.g. "bTRDq2"
+        }
+
+        // Replace {CODE} and {DATE} in frontend
+        const randomCode = generateRandomCode();
+        const now = new Date();
+        const currentDate = now.toLocaleDateString("en-US", {
+          month: "long",
+          day: "2-digit",
+          year: "numeric",
+        }); // "January 02, 2026"
+        const currentYear = now.getFullYear().toString(); // "2026"
+
+        const processed = text
+          .replace(/\{CODE\}/g, `{${randomCode}}`) // {CODE} → {bTRDq2}
+          .replace(/\{DATE\}/g, currentDate) // {DATE} → "January 02, 2026"
+          .replace(/\{year\}/g, currentYear); // {year} → "2026"[web:31][web:34]
+
+        // Ensure .pdf filename
+        const baseName = file.name.replace(/\.html?$/i, "");
+        uploadFiles.push({
+          name: `${baseName}.pdf`,
+          html: processed,
+        });
+      }
+
+      const res = await fetch("/api/html-to-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: uploadFiles }),
+      });
+
+      if (!res.ok) {
+        console.error("Failed to generate PDF/ZIP");
+        return;
+      }
+
+      const blob = await res.blob();
+      const contentType = res.headers.get("Content-Type") || "";
+
+      let filename = "document.pdf";
+      if (uploadFiles.length > 1) {
+        filename = "documents.zip";
+      }
+
+      const disposition = res.headers.get("Content-Disposition");
+      if (disposition) {
+        const match = disposition.match(/filename=\"(.+)\"/);
+        if (match) filename = match[1];
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="file"
+        accept=".html,text/html"
+        multiple
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+      {loading && <p>Generating…</p>}
+    </div>
+  );
+}
