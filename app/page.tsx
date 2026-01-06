@@ -148,7 +148,11 @@ export default function HtmlToPdfUploader() {
         uploadFiles.push({
           name: `${baseName}.pdf`,
           html: processed,
-          pdfMeta: pdfMeta,
+          pdfMeta: {
+            ...pdfMeta,
+            // Only include modified if non-empty
+            ...(pdfMeta.modified && { modified: pdfMeta.modified }),
+          },
         });
       }
 

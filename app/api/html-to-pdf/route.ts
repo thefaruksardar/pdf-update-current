@@ -78,12 +78,17 @@ export async function POST(req: NextRequest) {
 
       // ✅ FIXED: Use file.pdfMeta (matches frontend)
       if (file.pdfMeta) {
-        console.log("Applying metadata:", file.pdfMeta);
+        // console.log("Applying metadata:", file.pdfMeta);
+
         const pdfDoc = await PDFDocument.load(pdfBuffer);
 
         if (file.pdfMeta.author) pdfDoc.setAuthor(file.pdfMeta.author);
         if (file.pdfMeta.subject) pdfDoc.setSubject(file.pdfMeta.subject);
-        if (file.pdfMeta.producer) pdfDoc.setProducer(file.pdfMeta.producer); // ✅ NEW
+        if (file.pdfMeta?.producer) {
+          pdfDoc.setProducer(file.pdfMeta.producer);
+        } else {
+          pdfDoc.setProducer(" "); // neutral, invisible-ish
+        }
         if (file.pdfMeta.keywords) {
           const keywordsArray = file.pdfMeta.keywords
             .split(",")
