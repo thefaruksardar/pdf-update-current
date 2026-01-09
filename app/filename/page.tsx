@@ -50,52 +50,45 @@ export default function WindowsFileRenameDocs() {
 
         <CodeBlock
           code={`
-            cd pdfs
-            $counts = @{}
-Get-ChildItem *.pdf | ForEach-Object {
-  $base = $_.Name -replace '\\{.*?\\}', ''
-  $words = $base -split '\\s+'
-  $short = ($words[0] + $words[1]).ToLower() -replace '[^a-z0-9]', ''
+cd pdfs
+perl -e '
+use strict;
+use warnings;
 
-  if (-not $counts.ContainsKey($short)) { $counts[$short] = 0 }
-  $counts[$short]++
+my %count;
 
-  $chars = ('A'..'Z') + ('a'..'z') + (0..9)
-  $code = -join (1..4 | ForEach-Object { $chars | Get-Random })
+for my $f (glob "*.pdf") {
+  my $base = $f;
+  $base =~ s/\\{.*?\\}//g;
 
-  Rename-Item $_ "\${short}_$($counts[$short])_$code.pdf"
-}`}
+  my @w = split /\\s+/, $base;
+  my $short = lc( ($w[0] // "") . ($w[1] // "") );
+  $short =~ s/[^a-z0-9]//g;
+
+  $count{$short}++;
+
+  my @c = ("A".."Z", "a".."z", 0..9);
+  my $code = join "", map { $c[rand @c] } 1..4;
+
+  rename $f, "\${short}_$count{$short}_$code.pdf"
+    or warn "Could not rename $f\\n";
+}
+'
+
+for f in aiporn_*; do
+  mv "$f" "\${f/aiporn/pornai}"
+done
+
+for f in aisex_*; do
+  mv "$f" "\${f/aisex/sexai}"
+done
+`}
         />
-      </section>
-      {/* SECTION 2 */}
-      <section className="mt-10">
-        <h2 className="text-xl font-medium text-neutral-800">
-          Rename File Prefix (aiporn → pornai, aisex → sexai)
-        </h2>
-
-        <p className="mt-2 text-neutral-800">
-          Use this when you only want to change a word in the filename while
-          keeping everything else untouched.
-        </p>
-
-        <CodeBlock
-          code={`Get-ChildItem aiporn_* | Rename-Item -NewName { $_.Name -replace 'aiporn', 'pornai' }
-Get-ChildItem aisex_*  | Rename-Item -NewName { $_.Name -replace 'aisex', 'sexai' }`}
-        />
-
-        <div className="mt-4 rounded-lg bg-neutral-50 p-4 text-sm text-neutral-700">
-          <strong>Example</strong>
-          <div className="mt-2 font-mono text-neutral-600">
-            aiporn_video_01.mp4 → pornai_video_01.mp4
-            <br />
-            aisex_data_backup.zip → sexai_data_backup.zip
-          </div>
-        </div>
       </section>
 
       {/* HOW TO RUN */}
       <section className="mt-12 rounded-xl border border-neutral-200 bg-neutral-50 p-6">
-        <h3 className="font-medium">How to run</h3>
+        <h3 className="font-medium text-neutral-950">How to run</h3>
         <ol className="mt-3 list-decimal space-y-2 pl-5 text-neutral-600">
           <li>Open the folder containing your files</li>
           <li>
